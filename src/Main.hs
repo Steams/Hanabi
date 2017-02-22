@@ -3,6 +3,8 @@ module Main where
 import System.IO
 import System.Directory
 import System.Console.ANSI
+import System.Posix.Directory
+import Data.Text
 
 --- I Hate $ syntax for function application. Who thought that was a good idea ???
 --- Must redefine to a sane operator
@@ -43,7 +45,7 @@ exec command =
       return ()
 
     CD path -> do
-      putStrLn ( "changing directories not yet implemented :: " ++ path ++ "\n")
+      changeWorkingDirectory $ unpack . strip . pack $ path
       prompt
 
     CLEAR -> do
