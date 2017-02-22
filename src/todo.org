@@ -1,6 +1,0 @@
-* Core
-** Handle erros without crashing shell
-** Backspace
-
-* Features
-** TODO Git integration

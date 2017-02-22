@@ -1,25 +1,23 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import System.IO
 import System.Directory
 import System.Console.ANSI
 import System.Posix.Directory
-import Data.Text
+import System.Posix.Process
+import System.Posix.Types
+import Data.Text hiding (head,tail)
 
---- I Hate $ syntax for function application. Who thought that was a good idea ???
---- Must redefine to a sane operator
-(<|) :: (a -> b) -> a -> b
-(<|) = ($)
-
-(|>) :: a -> (a -> b) -> b
-(|>) x f = f x
-
-title :: IO String
-title = do
+get_prompt :: IO Text
+get_prompt = do
   dir <- getCurrentDirectory
-  return ( "" ++ dir ++ " | hanabi >_ " )
+  return $ pack $ "" ++ dir ++ " | hanabi >_ "
 
-type Path = String
+type Path = Text
+type Program = Text
+type Args = [Text]
 
 data Command
   = LS
@@ -27,7 +25,20 @@ data Command
   | EXIT
   | CD Path
   | CLEAR
+  | EXEC Program Args
   | NONE
+
+-- Retrieves the exit status of the process for pid as a Maybe
+-- If the exit status is not available (ie process still running), getProcessStatus returns "Nothing"
+-- Thus we continue waiting.
+-- When we're done waiting, return an empty IO Monad so we can sequence back to prompt
+wait_for_child_exit :: ProcessID -> IO ()
+wait_for_child_exit pid = do
+  status <- getProcessStatus True True pid
+  case status of
+    Just _ -> return ()
+
+    Nothing -> wait_for_child_exit pid
 
 exec :: Command -> IO ()
 exec command =
@@ -38,14 +49,14 @@ exec command =
 
     PWD -> do
       dir <- getCurrentDirectory
-      putStrLn ( dir ++ "\n" )
+      putStrLn dir
       prompt
 
     EXIT ->
       return ()
 
     CD path -> do
-      changeWorkingDirectory $ unpack . strip . pack $ path
+      changeWorkingDirectory $ unpack path
       prompt
 
     CLEAR -> do
@@ -53,44 +64,54 @@ exec command =
       setCursorPosition 0 0
       prompt
 
+    EXEC cmd args -> do
+      pid <- forkProcess $ executeFile (unpack cmd) True (unpack <$> args) Nothing
+      wait_for_child_exit pid >> prompt
+
     NONE -> do
       putStrLn "Not a valid command"
       prompt
 
 
-parse_command :: String -> Command
+parse_command :: Text -> Command
 parse_command line =
-  case line of
-    "ls" -> LS
+  let
+    parts = splitOn " " line
+    command = head parts
+    args = tail parts
+  in
+    case command of
+      "ls" -> LS
 
-    "pwd" -> PWD
+      "pwd" -> PWD
 
-    "exit" -> EXIT
+      "exit" -> EXIT
 
-    "clear" -> CLEAR
+      "clear" -> CLEAR
 
-    'c':'d':xs -> CD xs
+      "cd" -> CD $ head args
 
-    _ -> NONE
+      _ ->
+        EXEC command args
 
-print_prompt :: String -> IO ()
+print_prompt :: Text -> IO ()
 print_prompt s = do
   setSGR [SetColor Foreground Vivid Blue]
-  putStr s
-  hFlush stdout
+  putStr . unpack $ s
   setSGR [Reset]
+  hFlush stdout
+
+
+prompt :: IO ()
+prompt = do
+  putStrLn ""
+  get_prompt >>= print_prompt
+  (parse_command . pack <$> getLine) >>= exec
 
 initialize :: IO ()
 initialize = do
   clearScreen
   setCursorPosition 0 0
-
-prompt :: IO ()
-prompt = do
-  tltl <- title
-  print_prompt tltl
-  command <- parse_command <$> getLine
-  exec command
 
 main :: IO ()
 main = do
