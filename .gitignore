@@ -17,6 +17,8 @@
 TAGS
 tags
 
+*.org
+
 
 .stack-work/
 dist

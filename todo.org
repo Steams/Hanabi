@@ -1,9 +1,0 @@
-* Core
-** Handle erros without crashing shell
-** Backspace
-** handle ~ in input as home dir
-** display current dir as ~/path/to if the dir is inside home dir
-** DONE fork exec commands
-
-* Features
-** TODO Git integration

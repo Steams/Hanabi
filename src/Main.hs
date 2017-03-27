@@ -8,12 +8,27 @@ import System.Console.ANSI
 import System.Posix.Directory
 import System.Posix.Process
 import System.Posix.Types
-import Data.Text hiding (head,tail)
+import Data.Text hiding (head,tail,map)
+
+-- Aliases for bind, makes the syntax prettier
+(|>>=) :: Monad m => m a -> (a -> m b) -> m b
+m |>>= f = m >>= f
+infixl 1 |>>=
+
+-- Aliases for >>
+(|>>) :: Monad m => m a -> m b -> m b
+m |>> f = m >> f
+infixl 1 |>>
+
+-- Just an alias for $, which is an ugly symbol
+(<|) :: (a -> b) -> a -> b
+f <| x = f x
+infixr 2 <|
 
 get_prompt :: IO Text
 get_prompt = do
   dir <- getCurrentDirectory
-  return $ pack $ "" ++ dir ++ " | hanabi >_ "
+  return <| pack <| dir ++ " | hanabi >_ "
 
 type Path = Text
 type Program = Text
@@ -27,6 +42,7 @@ data Command
   | CLEAR
   | EXEC Program Args
   | NONE
+  | ECHO Text
 
 -- Retrieves the exit status of the process for pid as a Maybe
 -- If the exit status is not available (ie process still running), getProcessStatus returns "Nothing"
@@ -43,40 +59,44 @@ wait_for_child_exit pid = do
 exec :: Command -> IO ()
 exec command =
   case command of
-    LS -> do
-      putStrLn "list dirs here"
-      prompt
+    LS ->
+      getDirectoryContents "."
+      |>>= mapM_ putStrLn
+      |>> prompt
 
-    PWD -> do
-      dir <- getCurrentDirectory
-      putStrLn dir
-      prompt
+    PWD ->
+      getCurrentDirectory
+      |>>= putStrLn
+      |>> prompt
 
     EXIT ->
       return ()
 
-    CD path -> do
-      changeWorkingDirectory $ unpack path
-      prompt
+    CD path ->
+      changeWorkingDirectory <| unpack path
+      |>> prompt
 
-    CLEAR -> do
+    CLEAR ->
       clearScreen
-      setCursorPosition 0 0
-      prompt
+      |>> setCursorPosition 0 0
+      |>> prompt
 
-    EXEC cmd args -> do
-      pid <- forkProcess $ executeFile (unpack cmd) True (unpack <$> args) Nothing
-      wait_for_child_exit pid >> prompt
+    EXEC cmd args ->
+      forkProcess <| executeFile (unpack cmd) True (unpack <$> args) Nothing
+      |>>= wait_for_child_exit
+      |>> prompt
 
-    NONE -> do
+    ECHO line ->
+      putStrLn <| unpack line
+      |>> prompt
+    NONE ->
       putStrLn "Not a valid command"
-      prompt
-
+      |>> prompt
 
 parse_command :: Text -> Command
 parse_command line =
   let
-    parts = splitOn " " line
+    parts = Data.Text.words line
     command = head parts
     args = tail parts
   in
@@ -89,31 +109,28 @@ parse_command line =
 
       "clear" -> CLEAR
 
-      "cd" -> CD $ head args
+      "cd" -> CD <| head args
 
-      _ ->
-        EXEC command args
+      "echo" -> ECHO <| Data.Text.unwords args
+
+      _ -> EXEC command args
 
 print_prompt :: Text -> IO ()
-print_prompt s = do
+print_prompt text = do
+  putStrLn ""
   setSGR [SetColor Foreground Vivid Blue]
-  putStr . unpack $ s
+  putStr <| unpack text
   setSGR [Reset]
   hFlush stdout
 
-
 prompt :: IO ()
 prompt = do
-  putStrLn ""
   get_prompt >>= print_prompt
   (parse_command . pack <$> getLine) >>= exec
 
 initialize :: IO ()
-initialize = do
-  clearScreen
-  setCursorPosition 0 0
+initialize =
+  clearScreen >> setCursorPosition 0 0
 
 main :: IO ()
-main = do
-  initialize
-  prompt
+main = initialize >> prompt
